@@ -57,16 +57,18 @@ class EchoDevice:
 
 
 def find_station(keyword):
+    ret = []
     result = sp.check_output(["/bin/sh", "alexa_remote_control.sh", "-S"])
     stations = json.loads(result[result.find('{'):])['primeStationSectionList'][0]
     for c in stations['categories']:
         for s in c['stations']:
             if (keyword.lower() in s['stationTitle'].lower()):
-                return s
-    return None
+                ret.append(s)
+    return ret
 
 
 def find_playlist(keyword):
+    ret = []
     data = sp.check_output(["/bin/sh", "alexa_remote_control.sh", "-P"])
     offset = 0
     decoder = json.JSONDecoder()
@@ -80,13 +82,13 @@ def find_playlist(keyword):
             try:
                 for p in obj['primePlaylistList']:
                     if (keyword.lower() in p['title'].lower()):
-                        return p
+                        ret.append(p)
             except KeyError, e:
                 pass
         except ValueError, e:
             break
 
-    return None
+    return ret
 
 
 def devices():
@@ -110,18 +112,27 @@ def on_message(mqttc, devices, msg):
                         pass
                 elif cmd[3] == 'playlist':
                     print("Search playlist with keyword '%s'" % msg.payload)
-                    p = find_playlist(msg.payload)
-                    if p:
-                        print("Play '%s' on '%s'" % (p['title'], d.name))
-                        d.play(p)
+                    playlists = find_playlist(msg.payload)
+
+                    pnames = list(p['title'] for p in playlists)
+                    mqttc.publish("alexa/device/%s/playlists" % d.name, json.dumps(pnames))
+
+                    if len(playlists) > 0:
+                        print("Play '%s' on '%s'" % (playlists[0]['title'], d.name))
+                        d.play(playlists[0])
                     else:
                         print("No playlist found.")
                 elif cmd[3] == 'station':
                     print("Search station with keyword '%s'" % msg.payload)
-                    s = find_station(msg.payload)
-                    if s:
-                        print("Tune to station '%s' on '%s'" % (s['stationTitle'], d.name))
-                        d.tune(s)
+                    stations = find_station(msg.payload)
+
+                    # publish results
+                    snames = list(s['stationTitle'] for s in stations)
+                    mqttc.publish("alexa/device/%s/stations" % d.name, json.dumps(snames))
+
+                    if len(stations) > 0:
+                        print("Tune to station '%s' on '%s'" % (stations[0]['stationTitle'], d.name))
+                        d.tune(stations[0])
                     else:
                         print("No station found.")
                 elif cmd[3] == 'volume':
